@@ -175,6 +175,35 @@
     color: var(--bg);
   }
 
+  .mes-filtro {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    margin-bottom: 14px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mes-filtro::-webkit-scrollbar { display: none; }
+  .mes-chip {
+    flex: 0 0 auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 20px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .mes-chip.ativo {
+    color: #fff;
+    border-color: transparent;
+  }
+
   .total-box {
     background: var(--card);
     border: 1px solid var(--border);
@@ -606,6 +635,7 @@ let estado = {
 let abaAtual = 'resumo';
 let modalCtx = null; // {tipo, item}
 let confirmCtx = null; // {tipo, id, descricao}
+let filtroMesGastos = 'todos';
 
 // =========== Persistência ===========
 function carregar() {
@@ -683,6 +713,17 @@ function buildGCalLink(item) {
   else if (item.recorrencia === 'semanal') recur = '&recur=RRULE:FREQ=WEEKLY';
   else if (item.recorrencia === 'anual') recur = '&recur=RRULE:FREQ=YEARLY';
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${dates}&details=${details}${recur}`;
+}
+
+function chavesMeses(lista) {
+  const set = new Set();
+  lista.forEach(item => { if (item.data) set.add(item.data.slice(0, 7)); });
+  return [...set].sort((a, b) => b.localeCompare(a));
+}
+function labelMes(chave) {
+  const [ano, mes] = chave.split('-');
+  const texto = new Date(Number(ano), Number(mes) - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
 function getLista(tipo) {
@@ -768,11 +809,29 @@ function renderResumo() {
 }
 
 function renderSecao(tipo, titulo, subtitulo, corClass, bgClass, bordaClass) {
-  const lista = [...getLista(tipo)].sort((a, b) => (a.data || '').localeCompare(b.data || ''));
-  const total = lista.reduce((s, x) => s + Number(x.valor || 0), 0);
+  let lista = [...getLista(tipo)].sort((a, b) => (a.data || '').localeCompare(b.data || ''));
   const mostrarMarcar = tipo === 'receber' || tipo === 'programado';
   const mostrarCal = tipo === 'programado';
   const labelMarcar = tipo === 'receber' ? 'Marcar como recebido' : 'Marcar como pago';
+
+  let filtroHTML = '';
+  if (tipo === 'gasto') {
+    const meses = chavesMeses(lista);
+    if (filtroMesGastos !== 'todos' && !meses.includes(filtroMesGastos)) filtroMesGastos = 'todos';
+    if (meses.length > 0) {
+      filtroHTML = `
+        <div class="mes-filtro">
+          <button class="mes-chip ${filtroMesGastos === 'todos' ? 'ativo ' + bgClass : ''}" data-mes="todos">Todos os meses</button>
+          ${meses.map(m => `<button class="mes-chip ${filtroMesGastos === m ? 'ativo ' + bgClass : ''}" data-mes="${m}">${labelMes(m)}</button>`).join('')}
+        </div>
+      `;
+    }
+    if (filtroMesGastos !== 'todos') {
+      lista = lista.filter(item => (item.data || '').slice(0, 7) === filtroMesGastos);
+    }
+  }
+
+  const total = lista.reduce((s, x) => s + Number(x.valor || 0), 0);
 
   const itens = lista.length === 0
     ? `<div class="lista-vazia">Nenhum lançamento ainda. Toque em "Adicionar" para começar.</div>`
@@ -809,8 +868,9 @@ function renderSecao(tipo, titulo, subtitulo, corClass, bgClass, bordaClass) {
       </div>
       <button class="btn-add ${bgClass}" data-novo="${tipo}">+ Adicionar</button>
     </div>
+    ${filtroHTML}
     <div class="total-box">
-      <span class="label">Total</span>
+      <span class="label">Total${tipo === 'gasto' && filtroMesGastos !== 'todos' ? ' · ' + labelMes(filtroMesGastos) : ''}</span>
       <span class="valor ${corClass}">${formatBRL(total)}</span>
     </div>
     ${itens}
@@ -830,6 +890,14 @@ function vincularEventos() {
   // Botão adicionar
   document.querySelectorAll('[data-novo]').forEach(el => {
     el.addEventListener('click', () => abrirModal(el.dataset.novo, null));
+  });
+
+  // Filtro de mês (Gastos)
+  document.querySelectorAll('.mes-chip').forEach(el => {
+    el.addEventListener('click', () => {
+      filtroMesGastos = el.dataset.mes;
+      render();
+    });
   });
 
   // Backup
